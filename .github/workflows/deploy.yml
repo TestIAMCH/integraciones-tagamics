@@ -1,0 +1,64 @@
+name: Deploy to Azure VM
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Application
+        run: npm run build
+
+      - name: Deploy to Azure VM via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_IP }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            # Create a project folder if it doesn't exist
+            mkdir -p ~/integraciones-tagamics
+            
+            # Navigate to folder
+            cd ~/integraciones-tagamics
+
+            # (Optional) Clean up previous build files if copying manually
+            # But here we will uses a Docker-centric approach
+            
+            # Since the runner has the code, we could sync it, 
+            # Or we could just pull from GitHub on the VM if it's public.
+            # But the most professional way is to build the image and push to ACR/DockerHub.
+            # However, for a single VM, we'll build ON the VM for simplicity.
+            
+            # Pull latest changes from git (The VM needs git configured or a token)
+            if [ ! -d ".git" ]; then
+              git clone https://github.com/TestIAMCH/integraciones-tagamics.git .
+            else
+              git pull origin main
+            fi
+
+            # Stop and remove existing container
+            docker stop tagamics-app || true
+            docker rm tagamics-app || true
+
+            # Build the new image
+            docker build -t tagamics-app .
+
+            # Run the container (Map port 80 to 8080 or port 80 to 80)
+            docker run -d --name tagamics-app -p 8080:80 --restart always tagamics-app
