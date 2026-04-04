@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Configuración | Tagamics</title>
+    <!-- Google Fonts: Outfit -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="/src/style.css">
+  </head>
+  <body class="config-page">
+    <div id="app">
+      <header class="header">
+        <div class="top-bar">
+          <a href="/" class="back-btn">
+            <i data-lucide="chevron-left"></i>
+            Volver
+          </a>
+          <span class="session-id">Configuración</span>
+        </div>
+        <h1 class="main-title">Ajustes de Precios y Tiempos</h1>
+      </header>
+
+      <main class="content">
+        <form id="config-form" class="config-form">
+          <div id="packages-inputs" class="packages-inputs-container">
+            <!-- Dynamic Inputs for 3 packages -->
+            <div class="loading-state">Cargando configuración...</div>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="save-btn">
+              <i data-lucide="save"></i>
+              Guardar Cambios
+            </button>
+          </div>
+        </form>
+      </main>
+
+      <footer class="footer">
+        <p>Los cambios se guardan localmente en este navegador.</p>
+      </footer>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="toast hidden">Configuración guardada</div>
+
+    <script type="module" src="/src/config.js"></script>
+    <script>
+      lucide.createIcons();
+    </script>
+  </body>
+</html>
