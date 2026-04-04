@@ -24,24 +24,46 @@ jobs:
       - name: Build Application
         run: npm run build
 
-      - name: Deploy to Azure VM via SSH
+      - name: Copy files to Azure VM
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.MV_AZURE }}
+          username: Joseadmin
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          source: "dist/*,Dockerfile,nginx.conf,.dockerignore"
+          target: "~/integraciones-tagamics"
+          overwrite: true
+          rm: true
+
+      - name: Deploy Docker on Azure VM
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.MV_AZURE }}
           username: Joseadmin
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
+          command_timeout: 10m
           script: |
-            # Clean start
-            rm -rf ~/integraciones-tagamics
-            mkdir -p ~/integraciones-tagamics
             cd ~/integraciones-tagamics
-            
-            # Simple clone
-            git clone https://github.com/TestIAMCH/integraciones-tagamics.git .
 
-            # Docker commands (No sudo)
-            docker stop tagamics-app || true
-            docker rm tagamics-app || true
-            docker build -t tagamics-app .
+            # Create a simpler Dockerfile that just serves the pre-built dist
+            cat > Dockerfile.prod << 'EOF'
+            FROM nginx:stable-alpine
+            COPY nginx.conf /etc/nginx/conf.d/default.conf
+            COPY dist/ /usr/share/nginx/html/
+            EXPOSE 80
+            CMD ["nginx", "-g", "daemon off;"]
+            EOF
+
+            # Stop and remove existing container
+            docker stop tagamics-app 2>/dev/null || true
+            docker rm tagamics-app 2>/dev/null || true
+
+            # Build lightweight image (no Node.js needed!)
+            docker build -f Dockerfile.prod -t tagamics-app .
+
+            # Run the container
             docker run -d --name tagamics-app -p 8080:80 --restart always tagamics-app
+
+            echo "=== DEPLOY SUCCESS ==="
