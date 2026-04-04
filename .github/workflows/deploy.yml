@@ -27,7 +27,7 @@ jobs:
       - name: Deploy to Azure VM via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.VM_IP }}
+          host: ${{ secrets.MV_AZURE }}
           username: joseadmin
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
