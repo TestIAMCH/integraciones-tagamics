@@ -28,37 +28,24 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.MV_AZURE }}
-          username: joseadmin
+          username: Joseadmin
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           script: |
-            # Create a project folder if it doesn't exist
+            # Clean start to avoid "destination path already exists" errors
+            sudo rm -rf ~/integraciones-tagamics
             mkdir -p ~/integraciones-tagamics
-            
-            # Navigate to folder
             cd ~/integraciones-tagamics
-
-            # (Optional) Clean up previous build files if copying manually
-            # But here we will uses a Docker-centric approach
             
-            # Since the runner has the code, we could sync it, 
-            # Or we could just pull from GitHub on the VM if it's public.
-            # But the most professional way is to build the image and push to ACR/DockerHub.
-            # However, for a single VM, we'll build ON the VM for simplicity.
-            
-            # Pull latest changes from git (The VM needs git configured or a token)
-            if [ ! -d ".git" ]; then
-              git clone https://github.com/TestIAMCH/integraciones-tagamics.git .
-            else
-              git pull origin main
-            fi
+            # Simple clone (using the public link as it is a public repo)
+            git clone https://github.com/TestIAMCH/integraciones-tagamics.git .
 
             # Stop and remove existing container
-            docker stop tagamics-app || true
-            docker rm tagamics-app || true
+            sudo docker stop tagamics-app || true
+            sudo docker rm tagamics-app || true
 
             # Build the new image
-            docker build -t tagamics-app .
+            sudo docker build -t tagamics-app .
 
-            # Run the container (Map port 80 to 8080 or port 80 to 80)
-            docker run -d --name tagamics-app -p 8080:80 --restart always tagamics-app
+            # Run the container (Map port 80 to 8080)
+            sudo docker run -d --name tagamics-app -p 8080:80 --restart always tagamics-app
