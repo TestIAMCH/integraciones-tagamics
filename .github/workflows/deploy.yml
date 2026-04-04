@@ -32,20 +32,16 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           script: |
-            # Clean start to avoid "destination path already exists" errors
-            sudo rm -rf ~/integraciones-tagamics
+            # Clean start
+            rm -rf ~/integraciones-tagamics
             mkdir -p ~/integraciones-tagamics
             cd ~/integraciones-tagamics
             
-            # Simple clone (using the public link as it is a public repo)
+            # Simple clone
             git clone https://github.com/TestIAMCH/integraciones-tagamics.git .
 
-            # Stop and remove existing container
-            sudo docker stop tagamics-app || true
-            sudo docker rm tagamics-app || true
-
-            # Build the new image
-            sudo docker build -t tagamics-app .
-
-            # Run the container (Map port 80 to 8080)
-            sudo docker run -d --name tagamics-app -p 8080:80 --restart always tagamics-app
+            # Docker commands (No sudo)
+            docker stop tagamics-app || true
+            docker rm tagamics-app || true
+            docker build -t tagamics-app .
+            docker run -d --name tagamics-app -p 8080:80 --restart always tagamics-app
