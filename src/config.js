@@ -6,14 +6,35 @@ const DEFAULT_PACKAGES = [
   { id: 3, price: '2500', time: '15' }
 ];
 
+let isInitialized = false;
+
+const getPackages = () => {
+  try {
+    const savedData = localStorage.getItem('tagamics_prices');
+    return savedData ? JSON.parse(savedData) : DEFAULT_PACKAGES;
+  } catch (error) {
+    console.warn('No se pudieron leer los paquetes guardados.', error);
+    return DEFAULT_PACKAGES;
+  }
+};
+
 const initConfig = () => {
+  if (isInitialized) {
+    return;
+  }
+
+  isInitialized = true;
+
   const form = document.getElementById('config-form');
   const container = document.getElementById('packages-inputs');
   const toast = document.getElementById('toast');
 
+  if (!form || !container || !toast) {
+    return;
+  }
+
   // Load existing data
-  const savedData = localStorage.getItem('tagamics_prices');
-  const packages = savedData ? JSON.parse(savedData) : DEFAULT_PACKAGES;
+  const packages = getPackages();
 
   // Render inputs
   container.innerHTML = packages.map((pkg, index) => `
@@ -53,7 +74,8 @@ const initConfig = () => {
   });
 };
 
-document.addEventListener('DOMContentLoaded', initConfig);
-if (document.readyState === 'complete' || document.readyState === 'interactive') {
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initConfig, { once: true });
+} else {
   initConfig();
 }
