@@ -9,6 +9,11 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Validate Secrets
+        run: |
+          test -n "${{ secrets.MP_ACCESS_TOKEN }}" || (echo "Missing MP_ACCESS_TOKEN secret" && exit 1)
+          test -n "${{ secrets.VITE_MP_PUBLIC_KEY }}" || (echo "Missing VITE_MP_PUBLIC_KEY secret" && exit 1)
+
       - name: Checkout Code
         uses: actions/checkout@v4
 
@@ -22,6 +27,8 @@ jobs:
         run: npm install
 
       - name: Build Application
+        env:
+          VITE_MP_PUBLIC_KEY: ${{ secrets.VITE_MP_PUBLIC_KEY }}
         run: npm run build
 
       - name: Copy files to Azure VM
@@ -31,7 +38,7 @@ jobs:
           username: Joseadmin
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
-          source: "dist/*,Dockerfile,nginx.conf,.dockerignore"
+          source: "dist/*,Dockerfile,server.js,package.json,package-lock.json,.dockerignore"
           target: "~/integraciones-tagamics"
           overwrite: true
           rm: true
@@ -47,23 +54,22 @@ jobs:
           script: |
             cd ~/integraciones-tagamics
 
-            # Create a simpler Dockerfile that just serves the pre-built dist
-            cat > Dockerfile.prod << 'EOF'
-            FROM nginx:stable-alpine
-            COPY nginx.conf /etc/nginx/conf.d/default.conf
-            COPY dist/ /usr/share/nginx/html/
-            EXPOSE 80
-            CMD ["nginx", "-g", "daemon off;"]
-            EOF
-
             # Stop and remove existing container
             docker stop tagamics-app 2>/dev/null || true
             docker rm tagamics-app 2>/dev/null || true
 
-            # Build lightweight image (no Node.js needed!)
-            docker build -f Dockerfile.prod -t tagamics-app .
+            # Build unified frontend + backend image
+            docker build -t tagamics-app .
 
-            # Run the container
-            docker run -d --name tagamics-app -p 8080:80 --restart always tagamics-app
+            # Run the container with runtime secrets
+            docker run -d \
+              --name tagamics-app \
+              -p 8080:3000 \
+              --restart always \
+              -e NODE_ENV=production \
+              -e PORT=3000 \
+              -e MP_ACCESS_TOKEN='${{ secrets.MP_ACCESS_TOKEN }}' \
+              -e ALLOWED_ORIGINS='${{ secrets.ALLOWED_ORIGINS }}' \
+              tagamics-app
 
             echo "=== DEPLOY SUCCESS ==="

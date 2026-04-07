@@ -1,9 +1,16 @@
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import dotenv from 'dotenv';
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const distPath = path.join(__dirname, 'dist');
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -156,6 +163,19 @@ app.post('/process_payment', async (req, res) => {
     });
   }
 });
+
+if (existsSync(distPath)) {
+  app.use(express.static(distPath));
+
+  app.get('/{*path}', (req, res, next) => {
+    if (req.path.startsWith('/create-preference') || req.path.startsWith('/process_payment') || req.path === '/health') {
+      next();
+      return;
+    }
+
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
 
 app.use((error, _req, res, _next) => {
   if (error.message === 'Origin not allowed by CORS') {

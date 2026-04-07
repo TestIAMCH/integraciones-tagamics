@@ -6,7 +6,7 @@ const DEFAULT_PACKAGES = [
   { id: 3, price: '2500', time: '15' }
 ];
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 const MP_PUBLIC_KEY = import.meta.env.VITE_MP_PUBLIC_KEY;
 
 let isInitialized = false;
