@@ -9,10 +9,17 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Load Tagamics Secret Bundle
+        env:
+          TAGAMICS_SECRET: ${{ secrets.Tagamics_secret || secrets.TAGAMICS_SECRET }}
+        run: |
+          test -n "$TAGAMICS_SECRET" || (echo "Missing Tagamics_secret secret" && exit 1)
+          printf '%s\n' "$TAGAMICS_SECRET" >> "$GITHUB_ENV"
+
       - name: Validate Secrets
         run: |
-          test -n "${{ secrets.MP_ACCESS_TOKEN }}" || (echo "Missing MP_ACCESS_TOKEN secret" && exit 1)
-          test -n "${{ secrets.VITE_MP_PUBLIC_KEY }}" || (echo "Missing VITE_MP_PUBLIC_KEY secret" && exit 1)
+          test -n "$MP_ACCESS_TOKEN" || (echo "Missing MP_ACCESS_TOKEN in Tagamics_secret" && exit 1)
+          test -n "$VITE_MP_PUBLIC_KEY" || (echo "Missing VITE_MP_PUBLIC_KEY in Tagamics_secret" && exit 1)
 
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -27,8 +34,6 @@ jobs:
         run: npm install
 
       - name: Build Application
-        env:
-          VITE_MP_PUBLIC_KEY: ${{ secrets.VITE_MP_PUBLIC_KEY }}
         run: npm run build
 
       - name: Copy files to Azure VM
@@ -61,15 +66,18 @@ jobs:
             # Build unified frontend + backend image
             docker build -t tagamics-app .
 
+            cat > .env << 'EOF'
+            ${{ secrets.Tagamics_secret || secrets.TAGAMICS_SECRET }}
+            EOF
+
             # Run the container with runtime secrets
             docker run -d \
               --name tagamics-app \
               -p 8080:3000 \
               --restart always \
+              --env-file .env \
               -e NODE_ENV=production \
               -e PORT=3000 \
-              -e MP_ACCESS_TOKEN='${{ secrets.MP_ACCESS_TOKEN }}' \
-              -e ALLOWED_ORIGINS='${{ secrets.ALLOWED_ORIGINS }}' \
               tagamics-app
 
             echo "=== DEPLOY SUCCESS ==="
