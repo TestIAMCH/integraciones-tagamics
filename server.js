@@ -19,6 +19,25 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+const publicSiteUrl = process.env.PUBLIC_SITE_URL || '';
+
+const isDomainReturnUrl = (value) => {
+  if (!value) {
+    return false;
+  }
+
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname;
+    const looksLikeIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname);
+    const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1';
+    const hasNamedDomain = /[a-zA-Z]/.test(hostname) && hostname.includes('.');
+
+    return (url.protocol === 'https:' || url.protocol === 'http:') && !looksLikeIp && !isLocalHost && hasNamedDomain;
+  } catch {
+    return false;
+  }
+};
 
 app.use(cors({
   origin(origin, callback) {
@@ -90,11 +109,13 @@ app.post('/create-preference', async (req, res) => {
       preferenceBody.purpose = purpose;
     }
 
-    if (backUrl) {
+    const returnUrl = isDomainReturnUrl(backUrl) ? backUrl : (isDomainReturnUrl(publicSiteUrl) ? publicSiteUrl : '');
+
+    if (returnUrl) {
       preferenceBody.back_urls = {
-        success: backUrl,
-        failure: backUrl,
-        pending: backUrl
+        success: returnUrl,
+        failure: returnUrl,
+        pending: returnUrl
       };
       preferenceBody.auto_return = 'approved';
     }
