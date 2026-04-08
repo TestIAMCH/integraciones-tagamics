@@ -40,44 +40,31 @@ jobs:
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.MV_AZURE }}
-          username: Joseadmin
+          username: azureuser
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
-          source: "dist/*,Dockerfile,server.js,package.json,package-lock.json,.dockerignore"
+          source: "dist/*,Dockerfile,server.js,package.json,package-lock.json,docker-compose.yml,Caddyfile"
           target: "~/integraciones-tagamics"
           overwrite: true
           rm: true
 
-      - name: Deploy Docker on Azure VM
+      - name: Deploy Docker Compose on Azure VM
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.MV_AZURE }}
-          username: Joseadmin
+          username: azureuser
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           command_timeout: 10m
           script: |
             cd ~/integraciones-tagamics
 
-            # Stop and remove existing container
-            docker stop tagamics-app 2>/dev/null || true
-            docker rm tagamics-app 2>/dev/null || true
-
-            # Build unified frontend + backend image
-            docker build -t tagamics-app .
-
             cat > .env << 'EOF'
             ${{ secrets.Tagamics_secret || secrets.TAGAMICS_SECRET }}
             EOF
 
-            # Run the container with runtime secrets
-            docker run -d \
-              --name tagamics-app \
-              -p 8080:3000 \
-              --restart always \
-              --env-file .env \
-              -e NODE_ENV=production \
-              -e PORT=3000 \
-              tagamics-app
+            sudo docker-compose down || true
+            sudo docker-compose up -d --build
+            sudo docker-compose ps
 
             echo "=== DEPLOY SUCCESS ==="
