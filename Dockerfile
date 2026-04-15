@@ -7,6 +7,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 COPY server.js ./
+COPY public/.well-known ./public/.well-known
 COPY dist ./dist
 
 EXPOSE 3000

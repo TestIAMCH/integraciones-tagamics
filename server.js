@@ -3,7 +3,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
-import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -11,33 +10,29 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distPath = path.join(__dirname, 'dist');
+const wellKnownPath = path.join(__dirname, 'public', '.well-known');
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
-const accessToken = process.env.MP_ACCESS_TOKEN || '';
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
-const publicSiteUrl = process.env.PUBLIC_SITE_URL || '';
 
-const isDomainReturnUrl = (value) => {
-  if (!value) {
-    return false;
-  }
+const paypalClientId = process.env.PAYPAL_CLIENT_ID || '';
+const paypalClientSecret = process.env.PAYPAL_CLIENT_SECRET || '';
+const paypalEnvironment = (process.env.PAYPAL_ENVIRONMENT || 'sandbox').toLowerCase();
+const paypalApiBaseUrl = paypalEnvironment === 'live'
+  ? 'https://api-m.paypal.com'
+  : 'https://api-m.sandbox.paypal.com';
 
-  try {
-    const url = new URL(value);
-    const hostname = url.hostname;
-    const looksLikeIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname);
-    const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1';
-    const hasNamedDomain = /[a-zA-Z]/.test(hostname) && hostname.includes('.');
-
-    return (url.protocol === 'https:' || url.protocol === 'http:') && !looksLikeIp && !isLocalHost && hasNamedDomain;
-  } catch {
-    return false;
-  }
-};
+const isPayPalConfigured = () => (
+  Boolean(paypalClientId && paypalClientSecret) &&
+  paypalClientId !== 'tu_client_id' &&
+  paypalClientId !== 'TU_CLIENT_ID_AQUI' &&
+  paypalClientSecret !== 'tu_client_secret' &&
+  paypalClientSecret !== 'TU_CLIENT_SECRET_AQUI'
+);
 
 app.use(cors({
   origin(origin, callback) {
@@ -50,137 +45,151 @@ app.use(cors({
   }
 }));
 app.use(express.json());
+app.use('/.well-known', express.static(wellKnownPath, { dotfiles: 'allow' }));
 
-const getClient = () => {
-  if (!accessToken) {
-    const error = new Error('MP_ACCESS_TOKEN no esta configurado en el backend.');
+const getPayPalErrorMessage = (data, fallbackMessage) => {
+  if (data?.message) {
+    return data.message;
+  }
+
+  if (Array.isArray(data?.details) && data.details.length > 0) {
+    return data.details
+      .map((detail) => detail.description || detail.issue)
+      .filter(Boolean)
+      .join(', ');
+  }
+
+  if (data?.error_description) {
+    return data.error_description;
+  }
+
+  if (data?.error) {
+    return data.error;
+  }
+
+  return fallbackMessage;
+};
+
+const assertPayPalConfig = () => {
+  if (!isPayPalConfigured()) {
+    const error = new Error('PAYPAL_CLIENT_ID y PAYPAL_CLIENT_SECRET deben estar configurados en el backend.');
     error.statusCode = 500;
     throw error;
   }
-
-  return new MercadoPagoConfig({ accessToken });
 };
 
-const getErrorMessage = (error, fallbackMessage) => {
-  if (error?.message?.includes('Acess_token')) {
-    return 'Token de acceso invalido o no configurado.';
+const getPayPalAccessToken = async () => {
+  assertPayPalConfig();
+
+  const credentials = Buffer
+    .from(`${paypalClientId}:${paypalClientSecret}`)
+    .toString('base64');
+
+  const response = await fetch(`${paypalApiBaseUrl}/v1/oauth2/token`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${credentials}`,
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: new URLSearchParams({ grant_type: 'client_credentials' })
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || !data.access_token) {
+    const error = new Error(getPayPalErrorMessage(data, 'No se pudo obtener el token OAuth de PayPal.'));
+    error.statusCode = response.status || 500;
+    throw error;
   }
 
-  if (Array.isArray(error?.cause) && error.cause.length > 0) {
-    return error.cause.map((item) => item.description || item.code).filter(Boolean).join(', ');
-  }
-
-  if (error?.errors) {
-    return JSON.stringify(error.errors);
-  }
-
-  return error?.message || fallbackMessage;
+  return data.access_token;
 };
 
 app.get('/health', (_req, res) => {
   res.json({
     ok: true,
-    mercadopagoConfigured: Boolean(accessToken)
+    paypalConfigured: isPayPalConfigured(),
+    paypalEnvironment
   });
 });
 
-app.post('/create-preference', async (req, res) => {
+app.post('/api/paypal/create-order', async (req, res) => {
   try {
-    const { price, title, purpose, backUrl } = req.body ?? {};
-    const amount = Number(price);
+    const amount = Number(req.body?.price);
 
     if (!Number.isFinite(amount) || amount <= 0) {
       return res.status(400).json({ error: 'El precio debe ser un numero mayor a 0.' });
     }
 
-    const preferenceBody = {
-      items: [
-        {
-          id: 'item-ID-1234',
-          title: title || 'Servicio Tagamics',
-          quantity: 1,
-          unit_price: amount,
-          currency_id: 'ARS'
-        }
-      ]
-    };
-
-    if (purpose === 'wallet_purchase' || purpose === 'onboarding_credits') {
-      preferenceBody.purpose = purpose;
-    }
-
-    const returnUrl = isDomainReturnUrl(backUrl) ? backUrl : (isDomainReturnUrl(publicSiteUrl) ? publicSiteUrl : '');
-
-    if (returnUrl) {
-      preferenceBody.back_urls = {
-        success: returnUrl,
-        failure: returnUrl,
-        pending: returnUrl
-      };
-      preferenceBody.auto_return = 'approved';
-    }
-
-    const preference = new Preference(getClient());
-    const result = await preference.create({
-      body: preferenceBody
+    const accessToken = await getPayPalAccessToken();
+    const response = await fetch(`${paypalApiBaseUrl}/v2/checkout/orders`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        intent: 'CAPTURE',
+        purchase_units: [
+          {
+            amount: {
+              currency_code: 'USD',
+              value: amount.toFixed(2)
+            }
+          }
+        ]
+      })
     });
 
-    res.json({ id: result.id });
-  } catch (error) {
-    console.error('Error al crear preferencia:', error);
+    const data = await response.json().catch(() => ({}));
 
+    if (!response.ok || !data.id) {
+      return res.status(response.status || 500).json({
+        error: getPayPalErrorMessage(data, 'No se pudo crear la orden de PayPal.'),
+        details: data
+      });
+    }
+
+    res.json({ id: data.id });
+  } catch (error) {
+    console.error('Error al crear orden de PayPal:', error);
     res.status(error.statusCode || 500).json({
-        error: getErrorMessage(error, 'No se pudo crear la preferencia.'),
-        details: 'Revisa la consola del backend para mas informacion.'
+      error: error.message || 'No se pudo crear la orden de PayPal.'
     });
   }
 });
 
-app.post('/process_payment', async (req, res) => {
+app.post('/api/paypal/capture-order', async (req, res) => {
   try {
-    const payer = req.body?.payer ?? {};
-    const identification = payer.identification ?? {};
-    const transactionAmount = Number(req.body?.transaction_amount);
-    const installments = Number(req.body?.installments);
+    const orderID = req.body?.orderID;
 
-    if (!Number.isFinite(transactionAmount) || transactionAmount <= 0) {
-      return res.status(400).json({ error: 'transaction_amount es obligatorio y debe ser valido.' });
+    if (!orderID) {
+      return res.status(400).json({ error: 'orderID es obligatorio.' });
     }
 
-    if (!req.body?.token || !req.body?.payment_method_id || !payer.email) {
-      return res.status(400).json({ error: 'Faltan datos obligatorios para procesar el pago.' });
-    }
-
-    const payment = new Payment(getClient());
-    const body = {
-      transaction_amount: transactionAmount,
-      token: req.body.token,
-      description: req.body.description || 'Compra en Tagamics',
-      installments: Number.isFinite(installments) && installments > 0 ? installments : 1,
-      payment_method_id: req.body.payment_method_id,
-      issuer_id: req.body.issuer_id,
-      payer: {
-        email: payer.email
+    const accessToken = await getPayPalAccessToken();
+    const response = await fetch(`${paypalApiBaseUrl}/v2/checkout/orders/${encodeURIComponent(orderID)}/capture`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
       }
-    };
+    });
 
-    if (identification.type && identification.number) {
-      body.payer.identification = {
-        type: identification.type,
-        number: identification.number
-      };
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      return res.status(response.status || 500).json({
+        error: getPayPalErrorMessage(data, 'No se pudo capturar la orden de PayPal.'),
+        details: data
+      });
     }
 
-    const result = await payment.create({ body });
-    res.json({
-        status: result.status,
-        status_detail: result.status_detail,
-        id: result.id
-    });
+    res.json(data);
   } catch (error) {
-    console.error('Error al procesar el pago con tarjeta:', error);
+    console.error('Error al capturar orden de PayPal:', error);
     res.status(error.statusCode || 500).json({
-      error: getErrorMessage(error, 'No se pudo procesar el pago.')
+      error: error.message || 'No se pudo capturar la orden de PayPal.'
     });
   }
 });
@@ -189,7 +198,7 @@ if (existsSync(distPath)) {
   app.use(express.static(distPath));
 
   app.get('/{*path}', (req, res, next) => {
-    if (req.path.startsWith('/create-preference') || req.path.startsWith('/process_payment') || req.path === '/health') {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/.well-known') || req.path === '/health') {
       next();
       return;
     }
@@ -209,5 +218,5 @@ app.use((error, _req, res, _next) => {
 
 app.listen(port, () => {
   console.log(`Backend server running on http://localhost:${port}`);
-  console.log('Esperando peticiones de Mercado Pago...');
+  console.log(`PayPal API configurada para ${paypalEnvironment}: ${paypalApiBaseUrl}`);
 });

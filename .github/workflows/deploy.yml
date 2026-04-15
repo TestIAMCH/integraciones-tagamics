@@ -18,8 +18,10 @@ jobs:
 
       - name: Validate Secrets
         run: |
-          test -n "$MP_ACCESS_TOKEN" || (echo "Missing MP_ACCESS_TOKEN in Tagamics_secret" && exit 1)
-          test -n "$VITE_MP_PUBLIC_KEY" || (echo "Missing VITE_MP_PUBLIC_KEY in Tagamics_secret" && exit 1)
+          test -n "$PAYPAL_CLIENT_ID" || (echo "Missing PAYPAL_CLIENT_ID in Tagamics_secret" && exit 1)
+          test -n "$PAYPAL_CLIENT_SECRET" || (echo "Missing PAYPAL_CLIENT_SECRET in Tagamics_secret" && exit 1)
+          test -n "$VITE_PAYPAL_CLIENT_ID" || (echo "Missing VITE_PAYPAL_CLIENT_ID in Tagamics_secret" && exit 1)
+          test -n "$PAYPAL_ENVIRONMENT" || (echo "Missing PAYPAL_ENVIRONMENT in Tagamics_secret" && exit 1)
 
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -43,7 +45,7 @@ jobs:
           username: azureuser
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
-          source: "dist/*,Dockerfile,server.js,package.json,package-lock.json,docker-compose.yml,Caddyfile"
+          source: "dist/*,public/.well-known,Dockerfile,server.js,package.json,package-lock.json,docker-compose.yml,Caddyfile"
           target: "~/integraciones-tagamics"
           overwrite: true
           rm: true
