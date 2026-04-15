@@ -7,15 +7,10 @@ const DEFAULT_PACKAGES = [
 ];
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
-const MP_PUBLIC_KEY = import.meta.env.VITE_MP_PUBLIC_KEY;
+const PAYPAL_CLIENT_ID = import.meta.env.VITE_PAYPAL_CLIENT_ID;
 
 let isInitialized = false;
-
-const paymentState = {
-  mp: null,
-  bricksBuilder: null,
-  controller: null
-};
+let paypalSdkPromise = null;
 
 const getPackages = () => {
   try {
@@ -33,56 +28,174 @@ const renderPaymentMessage = (container, message, color = '#ffffff') => {
   container.innerHTML = `<span style="color:${color}; font-weight:600;">${message}</span>`;
 };
 
-const unmountActiveBrick = async () => {
-  if (!paymentState.controller) {
-    return;
+const isMissingPayPalClientId = () => (
+  !PAYPAL_CLIENT_ID ||
+  PAYPAL_CLIENT_ID === 'tu_client_id' ||
+  PAYPAL_CLIENT_ID === 'TU_CLIENT_ID_AQUI'
+);
+
+const loadPayPalSdk = () => {
+  if (window.paypal) {
+    return Promise.resolve(window.paypal);
   }
 
-  try {
-    await paymentState.controller.unmount();
-  } catch (error) {
-    console.warn('No se pudo desmontar el Brick activo.', error);
-  } finally {
-    paymentState.controller = null;
+  if (paypalSdkPromise) {
+    return paypalSdkPromise;
   }
+
+  if (isMissingPayPalClientId()) {
+    return Promise.reject(new Error('Falta configurar VITE_PAYPAL_CLIENT_ID en el archivo .env.'));
+  }
+
+  paypalSdkPromise = new Promise((resolve, reject) => {
+    const existingScript = document.querySelector('#paypal-sdk');
+
+    if (existingScript) {
+      existingScript.addEventListener('load', () => resolve(window.paypal), { once: true });
+      existingScript.addEventListener('error', () => reject(new Error('No se pudo cargar el SDK de PayPal.')), { once: true });
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.id = 'paypal-sdk';
+    script.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(PAYPAL_CLIENT_ID)}&currency=USD&components=buttons,applepay,googlepay&enable-funding=card`;
+    script.async = true;
+    script.addEventListener('load', () => resolve(window.paypal), { once: true });
+    script.addEventListener('error', () => reject(new Error('No se pudo cargar el SDK de PayPal.')), { once: true });
+
+    document.head.appendChild(script);
+  });
+
+  return paypalSdkPromise;
 };
 
-const ensureMercadoPago = () => {
-  if (!window.MercadoPago) {
-    throw new Error('La libreria de Mercado Pago no se cargo.');
-  }
-
-  if (!MP_PUBLIC_KEY || MP_PUBLIC_KEY === 'PEGAR_AQUI' || MP_PUBLIC_KEY === 'TU_PUBLIC_KEY_AQUI') {
-    throw new Error('Falta configurar VITE_MP_PUBLIC_KEY en el archivo .env.');
-  }
-
-  if (!paymentState.mp) {
-    paymentState.mp = new window.MercadoPago(MP_PUBLIC_KEY, { locale: 'es-AR' });
-    paymentState.bricksBuilder = paymentState.mp.bricks();
-  }
-
-  return paymentState.bricksBuilder;
-};
-
-const createPreference = async (price, time, purpose = 'wallet_purchase') => {
-  const response = await fetch(getApiUrl('/create-preference'), {
+const createPayPalOrder = async (price) => {
+  const response = await fetch(getApiUrl('/api/paypal/create-order'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      price,
-      title: `Paquete Tagamics ${time} min`,
-      purpose,
-      backUrl: window.location.origin
-    })
+    body: JSON.stringify({ price })
   });
 
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok || !data.id) {
-    throw new Error(data.error || 'No se pudo crear la preferencia de pago.');
+    throw new Error(data.error || 'No se pudo crear la orden de PayPal.');
+  }
+
+  return data.id;
+};
+
+const capturePayPalOrder = async (orderID) => {
+  const response = await fetch(getApiUrl('/api/paypal/capture-order'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orderID })
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(data.error || 'No se pudo capturar la orden de PayPal.');
   }
 
   return data;
+};
+
+const getSelectedPackage = () => {
+  const selectedCard = document.querySelector('.package-card.selected');
+
+  if (!selectedCard) {
+    return null;
+  }
+
+  return {
+    price: selectedCard.getAttribute('data-price'),
+    time: selectedCard.getAttribute('data-time')
+  };
+};
+
+const renderPayPalButton = async (paypal, container, fundingSource) => {
+  const buttons = paypal.Buttons({
+    fundingSource,
+    style: {
+      height: 48,
+      shape: 'rect'
+    },
+    createOrder: async () => {
+      const selectedPackage = getSelectedPackage();
+
+      if (!selectedPackage?.price) {
+        throw new Error('Selecciona un paquete antes de continuar.');
+      }
+
+      return createPayPalOrder(selectedPackage.price);
+    },
+    onApprove: async (data) => {
+      const captureData = await capturePayPalOrder(data.orderID);
+
+      if (captureData.status !== 'COMPLETED') {
+        throw new Error(`El pago quedo en estado ${captureData.status || 'desconocido'}.`);
+      }
+
+      alert('¡Pago exitoso! La máquina se está activando.');
+    },
+    onError: (error) => {
+      console.error('Error de PayPal:', error);
+      renderPaymentMessage(container, error.message || 'No se pudo completar el pago con PayPal.', 'orange');
+    }
+  });
+
+  if (!buttons.isEligible()) {
+    return false;
+  }
+
+  await buttons.render(container);
+  return true;
+};
+
+const initializePayPalButtons = async () => {
+  const container = document.getElementById('smart-payment-container');
+
+  if (!container) {
+    return;
+  }
+
+  renderPaymentMessage(container, 'Cargando opciones de pago...');
+
+  try {
+    const paypal = await loadPayPalSdk();
+
+    container.innerHTML = '';
+
+    let renderedButtons = 0;
+    const fundingSources = [
+      paypal.FUNDING.APPLEPAY,
+      paypal.FUNDING.GOOGLEPAY,
+      paypal.FUNDING.PAYPAL,
+      paypal.FUNDING.CARD
+    ].filter(Boolean);
+
+    for (const fundingSource of fundingSources) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'standalone-button-wrapper';
+      container.appendChild(wrapper);
+
+      const wasRendered = await renderPayPalButton(paypal, wrapper, fundingSource);
+
+      if (wasRendered) {
+        renderedButtons += 1;
+      } else {
+        wrapper.remove();
+      }
+    }
+
+    if (renderedButtons === 0) {
+      renderPaymentMessage(container, 'PayPal no esta disponible en este navegador.', 'orange');
+    }
+  } catch (error) {
+    console.error('Error Frontend PayPal:', error);
+    renderPaymentMessage(container, error.message || 'Asegurate de tener el backend corriendo.', 'orange');
+  }
 };
 
 const init = () => {
@@ -93,24 +206,19 @@ const init = () => {
   isInitialized = true;
 
   const packagesGrid = document.querySelector('#packages-grid');
-  const paymentsGrid = document.querySelector('#payments-grid');
-  const paymentBtns = document.querySelectorAll('.payment-btn');
   const dateElement = document.querySelector('#current-date');
-  const paymentContainer = document.querySelector('#payment_container');
+  const paymentStack = document.querySelector('#smart-payment-container');
 
-  if (!packagesGrid || !paymentsGrid || !paymentBtns.length || !dateElement || !paymentContainer) {
+  if (!packagesGrid || !dateElement || !paymentStack) {
     return;
   }
 
-  // Set current date
   const now = new Date();
   const options = { day: 'numeric', month: 'long' };
   dateElement.textContent = now.toLocaleDateString('es-AR', options);
 
-  // Load Prices
   const packages = getPackages();
 
-  // Render Packages
   packagesGrid.innerHTML = packages.map(pkg => `
     <button class="package-card ${pkg.featured ? 'featured' : ''}" 
             data-id="${pkg.id}" 
@@ -127,121 +235,17 @@ const init = () => {
 
   const packageCards = document.querySelectorAll('.package-card');
 
-  // Package Selection Logic
+  initializePayPalButtons();
+
   packageCards.forEach(card => {
-    card.addEventListener('click', async () => {
+    card.addEventListener('click', () => {
       packageCards.forEach(c => c.classList.remove('selected'));
       card.classList.add('selected');
-      paymentsGrid.classList.remove('disabled');
-      await unmountActiveBrick();
-      paymentContainer.innerHTML = '';
+
+      paymentStack.classList.remove('disabled-stack');
 
       if (window.navigator.vibrate) {
         window.navigator.vibrate(10);
-      }
-    });
-  });
-
-  // Payment Buttons Logic
-  paymentBtns.forEach(btn => {
-    btn.addEventListener('click', async () => {
-      if (paymentsGrid.classList.contains('disabled')) return;
-
-      const method = btn.getAttribute('data-method');
-      const selectedCard = document.querySelector('.package-card.selected');
-      const price = selectedCard?.getAttribute('data-price');
-      const time = selectedCard?.getAttribute('data-time');
-
-      if (!selectedCard || !price || !time) {
-        alert('Selecciona un paquete antes de continuar.');
-        return;
-      }
-
-      if (method === 'mercado-pago' || method === 'credit-card') {
-        renderPaymentMessage(paymentContainer, 'Cargando integracion de pago...');
-
-        try {
-          const bricksBuilder = ensureMercadoPago();
-          await unmountActiveBrick();
-
-          if (method === 'mercado-pago') {
-            const data = await createPreference(price, time, 'wallet_purchase');
-            paymentContainer.innerHTML = '';
-            paymentState.controller = await bricksBuilder.create('wallet', 'payment_container', {
-              initialization: { preferenceId: data.id }
-            });
-          } else if (method === 'credit-card') {
-            renderPaymentMessage(paymentContainer, 'Configurando opciones avanzadas...');
-            const data = await createPreference(price, time, 'wallet_purchase');
-
-            paymentContainer.innerHTML = '';
-
-            const settings = {
-              initialization: {
-                amount: Number(price),
-                preferenceId: data.id
-              },
-              customization: {
-                visual: { style: { theme: 'dark' } },
-                paymentMethods: {
-                  creditCard: 'all',
-                  debitCard: 'all',
-                  prepaidCard: 'all',
-                  mercadoPago: ['wallet_purchase']
-                }
-              },
-              callbacks: {
-                onReady: () => {
-                  console.log('Payment Brick listo');
-                },
-                onSubmit: async ({ formData }) => {
-                  const response = await fetch(getApiUrl('/process_payment'), {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      ...formData,
-                      description: `Paquete Tagamics ${time} min`
-                    })
-                  });
-
-                  const result = await response.json().catch(() => ({}));
-
-                  if (!response.ok) {
-                    throw new Error(result.error || 'No se pudo procesar el pago.');
-                  }
-
-                  if (result.status === 'approved') {
-                    renderPaymentMessage(paymentContainer, 'Pago aprobado.', '#00ff99');
-                    return result;
-                  }
-
-                  renderPaymentMessage(
-                    paymentContainer,
-                    `Pago rechazado o pendiente (${result.status_detail || result.status || 'sin detalle'}).`,
-                    '#ff6b6b'
-                  );
-
-                  throw new Error(result.status_detail || 'El pago no fue aprobado.');
-                },
-                onError: (error) => {
-                  console.error('Error visual del brick:', error);
-                }
-              }
-            };
-
-            paymentState.controller = await bricksBuilder.create(
-              'payment',
-              'payment_container',
-              settings
-            );
-          }
-        } catch (error) {
-          console.error('Error Frontend:', error);
-          renderPaymentMessage(paymentContainer, error.message || 'Asegurate de tener el backend corriendo.', 'orange');
-        }
-      } else {
-        console.log(`Iniciando pago con ${method} por $${price} (${time} min)`);
-        alert(`Pasarela no integrada aún: ${method.toUpperCase()}\nTotal: $${price}`);
       }
     });
   });

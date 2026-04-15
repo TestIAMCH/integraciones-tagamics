@@ -11,8 +11,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- Mercado Pago SDK -->
-    <script src="https://sdk.mercadopago.com/js/v2"></script>
   </head>
   <body>
     <div id="app">
@@ -40,51 +38,8 @@
 
         <section class="payments-section">
           <h2 class="section-label">2. SELECCIONA TU MÉTODO DE PAGO</h2>
-          <div class="payments-grid disabled" id="payments-grid">
-            <button class="payment-btn" data-method="mercado-pago">
-              <div class="payment-icon mp">
-                <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 32px; height: 32px;">
-                  <path d="M24 48c13.255 0 24-10.745 24-24S37.255 0 24 0 0 10.745 0 24s10.745 24 24 24z" fill="#009EE3"/>
-                  <path d="M14.5 18s2.5-3.5 9.5-3.5 9.5 3.5 9.5 3.5v12s-2.5 3.5-9.5 3.5-9.5-3.5-9.5-3.5V18z" fill="#fff"/>
-                  <path d="M24 30.5c-7 0-9.5-3.5-9.5-3.5V18s2.5-3.5 9.5-3.5 9.5 3.5 9.5 3.5v12.5s-2.5-3.5-9.5-3.5z" fill="#fff"/>
-                  <path d="M19 22.5c0-.828.672-1.5 1.5-1.5s1.5.672 1.5 1.5-.672 1.5-1.5 1.5-1.5-.672-1.5-1.5zm8 0c0-.828.672-1.5 1.5-1.5s1.5.672 1.5 1.5-.672 1.5-1.5 1.5-1.5-.672-1.5-1.5z" fill="#009EE3"/>
-                </svg>
-              </div>
-              <span>Mercado Pago</span>
-            </button>
-            <button class="payment-btn" data-method="credit-card">
-              <div class="payment-icon credit">
-                <i data-lucide="credit-card"></i>
-              </div>
-              <span>Tarjeta</span>
-            </button>
-            <button class="payment-btn" data-method="paypal">
-              <div class="payment-icon paypal">
-                <i data-lucide="send"></i>
-              </div>
-              <span>PayPal</span>
-            </button>
-            <button class="payment-btn" data-method="pago-facil">
-              <div class="payment-icon cash">
-                <i data-lucide="banknote"></i>
-              </div>
-              <span>Pago Fácil</span>
-            </button>
-            <button class="payment-btn" data-method="rapipago">
-              <div class="payment-icon help">
-                <i data-lucide="landmark"></i>
-              </div>
-              <span>Rapipago</span>
-            </button>
-            <button class="payment-btn" data-method="crypto">
-              <div class="payment-icon crypto">
-                <i data-lucide="bitcoin"></i>
-              </div>
-              <span>Crypto</span>
-            </button>
-          </div>
-          <!-- Contenedor para los Bricks de Mercado Pago -->
-          <div id="payment_container" style="margin-top: 20px; display: flex; justify-content: center; min-height: 48px; width: 100%;"></div>
+          <p class="payment-hint">Elige un paquete para habilitar los métodos de pago.</p>
+          <div id="smart-payment-container" class="payment-stack disabled-stack"></div>
         </section>
       </main>
 
